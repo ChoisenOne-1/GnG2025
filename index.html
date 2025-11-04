@@ -4,34 +4,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Medical Help</title>
 <style>
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; background:#fafafa; }
-  .card { max-width: 680px; margin: 0 auto; padding: 20px 24px; border: 1px solid #ddd; border-radius: 16px; background:#fff; box-shadow: 0 1px 8px rgba(0,0,0,.04); }
-  h1 { margin: 0 0 8px; font-size: 1.4rem; }
-  #status { margin-top: 12px; color: #555; min-height: 1.4em; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding:24px; background:#fafafa }
+  .card { max-width: 680px; margin: 0 auto; padding: 20px 24px; border: 1px solid #ddd; border-radius: 16px; background:#fff; box-shadow: 0 1px 8px rgba(0,0,0,.04) }
+  h1 { margin: 0 0 8px; font-size: 1.4rem }
+  #status { margin-top: 12px; color: #555; min-height: 1.4em }
   .btn { display:inline-block; margin-top:16px; padding:16px 20px; font-weight:600; border-radius: 12px; border:none; cursor:pointer; width:100%;
-         background:#155eef; color:#fff; font-size:1.1rem; }
-  .btn[disabled] { background:#9fb5ff; cursor:not-allowed; }
-  .hint { color:#666; font-size:.95rem; margin-top:10px; }
+         background:#155eef; color:#fff; font-size:1.1rem }
+  .btn[disabled] { background:#9fb5ff; cursor:not-allowed }
+  .hint { color:#666; font-size:.95rem; margin-top:10px }
+  .small { font-size:.9rem; color:#666; margin-top:8px }
 </style>
 <body>
   <div class="card">
     <h1>Need medical help?</h1>
-    <p>Press and hold the button below to alert the on-call doctor. Stay on this page until it says <em>Sent</em>.</p>
+    <p>Press and hold the button below to alert the on-call doctor.</p>
     <button id="sendBtn" class="btn">Press & hold 2 seconds to send alert</button>
     <div id="status"></div>
     <p class="hint" id="locHint"></p>
+    <p class="small" id="cooldownHint" style="display:none"></p>
     <noscript><p style="color:#a00">This page needs JavaScript to send the alert.</p></noscript>
   </div>
 
 <script>
-/* ===== SET THESE ===== */
+/* ====== CONFIG ====== */
 const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1435370914417086555/V3tohQhlxNLvBlTWmHHM1uCz80PSsl4PSuE74LIIXWufKdLZ2xPpyM2LKWS84JWXNdT8"; // must start with https://discord.com/api/webhooks/
-const SHARED_SECRET = ""; // optional; if set, require ?key=YOUR_SECRET in the URL
-/* ===================== */
+const SHARED_SECRET = "";       // optional; if set, require ?key=YOUR_SECRET in URL
+const HOLD_MS = 2000;           // hold duration to confirm intent
+const COOLDOWN_MS = 10000;      // cooldown between sends per device+location (10s)
+/* ==================== */
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
 const btn = $('sendBtn');
+const cooldownHint = $('cooldownHint');
 
 const p = new URLSearchParams(location.search);
 const loc = p.get('loc') || 'Conference Hall';
@@ -49,24 +54,48 @@ if (SHARED_SECRET && key !== SHARED_SECRET) {
   btn.disabled = true;
 }
 
-// prevent repeated sends from the same device for the same location
-const SEND_KEY = `alert_sent_${loc}`;
-if (localStorage.getItem(SEND_KEY) === '1') {
-  statusEl.textContent = 'Already sent from this device for this location.';
-}
+// cooldown bookkeeping per device+location
+const TS_KEY = `alert_last_ts_${loc}`;
+let holdTimer = null, holdElapsed = 0, inflight = false, cooldownTimer = null;
 
-// hold-to-send logic (2 seconds)
-let holdTimer = null;
-let holdProgress = 0;
-const HOLD_MS = 2000;
+function msLeft() {
+  const last = parseInt(localStorage.getItem(TS_KEY) || '0', 10);
+  const now = Date.now();
+  return Math.max(0, last + COOLDOWN_MS - now);
+}
+function updateCooldownUI() {
+  const left = msLeft();
+  if (left > 0) {
+    btn.disabled = true;
+    cooldownHint.style.display = '';
+    cooldownHint.textContent = `Please wait ${Math.ceil(left/1000)}s before sending another alert from this device.`;
+    if (!cooldownTimer) {
+      cooldownTimer = setInterval(() => {
+        const l = msLeft();
+        if (l <= 0) {
+          clearInterval(cooldownTimer); cooldownTimer = null;
+          cooldownHint.style.display = 'none';
+          statusEl.textContent = '';
+          btn.disabled = false;
+        } else {
+          cooldownHint.textContent = `Please wait ${Math.ceil(l/1000)}s before sending another alert from this device.`;
+        }
+      }, 500);
+    }
+  } else {
+    cooldownHint.style.display = 'none';
+    btn.disabled = false;
+  }
+}
+updateCooldownUI();
 
 function startHold() {
-  if (btn.disabled) return;
+  if (btn.disabled || inflight) return;
   statusEl.textContent = 'Hold…';
-  holdProgress = 0;
+  holdElapsed = 0;
   holdTimer = setInterval(() => {
-    holdProgress += 100;
-    if (holdProgress >= HOLD_MS) {
+    holdElapsed += 100;
+    if (holdElapsed >= HOLD_MS) {
       clearInterval(holdTimer); holdTimer = null;
       sendAlert();
     }
@@ -76,24 +105,25 @@ function cancelHold() {
   if (holdTimer) { clearInterval(holdTimer); holdTimer = null; statusEl.textContent = ''; }
 }
 
+// input handlers (pointer + keyboard)
 btn.addEventListener('pointerdown', startHold);
 btn.addEventListener('pointerup', cancelHold);
 btn.addEventListener('pointerleave', cancelHold);
-btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') startHold(); });
-btn.addEventListener('keyup', (e) => { if (e.key === 'Enter' || e.key === ' ') cancelHold(); });
+btn.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') startHold(); });
+btn.addEventListener('keyup',   e => { if (e.key === ' ' || e.key === 'Enter') cancelHold(); });
 
 async function sendAlert() {
-  if (localStorage.getItem(SEND_KEY) === '1') {
-    statusEl.textContent = 'Already sent from this device for this location.';
-    return;
-  }
+  if (msLeft() > 0) { updateCooldownUI(); return; }
+  if (inflight) return;
+  inflight = true;
   btn.disabled = true;
-  const now = new Date().toISOString();
+
+  const nowIso = new Date().toISOString();
   const content = [
     '🚨 Medical help requested',
     'Location: ' + loc,
     'From: ' + who,
-    'Time (UTC): ' + now
+    'Time (UTC): ' + nowIso
   ].join('\n');
 
   try {
@@ -104,14 +134,17 @@ async function sendAlert() {
     });
     if (res.ok) {
       statusEl.textContent = 'Sent ✅';
-      localStorage.setItem(SEND_KEY, '1');
+      localStorage.setItem(TS_KEY, String(Date.now()));
+      updateCooldownUI();
     } else {
       statusEl.textContent = 'Failed (Discord HTTP ' + res.status + ')';
-      btn.disabled = false; // allow retry
+      btn.disabled = false;
     }
   } catch (e) {
     statusEl.textContent = 'Failed (network error)';
     btn.disabled = false;
+  } finally {
+    inflight = false;
   }
 }
 </script>
