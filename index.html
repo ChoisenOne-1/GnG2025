@@ -4,15 +4,44 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Medical Help</title>
 <style>
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding:24px; background:#fafafa }
-  .card { max-width: 680px; margin: 0 auto; padding: 20px 24px; border: 1px solid #ddd; border-radius: 16px; background:#fff; box-shadow: 0 1px 8px rgba(0,0,0,.04) }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    padding: 24px;
+    background: #fafafa;
+    -webkit-user-select: none; /* prevent text selection on long press */
+    user-select: none;
+    -webkit-touch-callout: none; /* prevent iOS touch menu */
+  }
+  .card {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 20px 24px;
+    border: 1px solid #ddd;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 1px 8px rgba(0,0,0,.04);
+  }
   h1 { margin: 0 0 8px; font-size: 1.4rem }
   #status { margin-top: 12px; color: #555; min-height: 1.4em }
-  .btn { display:inline-block; margin-top:16px; padding:16px 20px; font-weight:600; border-radius: 12px; border:none; cursor:pointer; width:100%;
-         background:#155eef; color:#fff; font-size:1.1rem }
-  .btn[disabled] { background:#9fb5ff; cursor:not-allowed }
-  .hint { color:#666; font-size:.95rem; margin-top:10px }
-  .small { font-size:.9rem; color:#666; margin-top:8px }
+  .btn {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 16px 20px;
+    font-weight: 600;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    width: 100%;
+    background: #155eef;
+    color: #fff;
+    font-size: 1.1rem;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .btn[disabled] { background: #9fb5ff; cursor: not-allowed }
+  .hint { color: #666; font-size: .95rem; margin-top: 10px }
+  .small { font-size: .9rem; color: #666; margin-top: 8px }
 </style>
 <body>
   <div class="card">
