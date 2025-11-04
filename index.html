@@ -4,41 +4,116 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Medical Help</title>
 <style>
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; }
-  .card { max-width: 640px; margin: 0 auto; padding: 16px 20px; border: 1px solid #ddd; border-radius: 12px; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; background:#fafafa; }
+  .card { max-width: 680px; margin: 0 auto; padding: 20px 24px; border: 1px solid #ddd; border-radius: 16px; background:#fff; box-shadow: 0 1px 8px rgba(0,0,0,.04); }
   h1 { margin: 0 0 8px; font-size: 1.4rem; }
-  #status { margin-top: 12px; color: #444; }
+  #status { margin-top: 12px; color: #555; min-height: 1.4em; }
+  .btn { display:inline-block; margin-top:16px; padding:16px 20px; font-weight:600; border-radius: 12px; border:none; cursor:pointer; width:100%;
+         background:#155eef; color:#fff; font-size:1.1rem; }
+  .btn[disabled] { background:#9fb5ff; cursor:not-allowed; }
+  .hint { color:#666; font-size:.95rem; margin-top:10px; }
 </style>
 <body>
   <div class="card">
-    <h1>Notifying the doctor…</h1>
-    <p>This page will automatically send an alert. You can close it when it says <em>Sent</em>.</p>
-    <div id="status">Sending…</div>
+    <h1>Need medical help?</h1>
+    <p>Press and hold the button below to alert the on-call doctor. Stay on this page until it says <em>Sent</em>.</p>
+    <button id="sendBtn" class="btn">Press & hold 2 seconds to send alert</button>
+    <div id="status"></div>
+    <p class="hint" id="locHint"></p>
     <noscript><p style="color:#a00">This page needs JavaScript to send the alert.</p></noscript>
   </div>
 
 <script>
-const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1435370914417086555/V3tohQhlxNLvBlTWmHHM1uCz80PSsl4PSuE74LIIXWufKdLZ2xPpyM2LKWS84JWXNdT8";
-const SHARED_SECRET = ""; // optional; if set, add ?key=YOUR_SECRET to the link
+/* ===== SET THESE ===== */
+const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1435370914417086555/V3tohQhlxNLvBlTWmHHM1uCz80PSsl4PSuE74LIIXWufKdLZ2xPpyM2LKWS84JWXNdT8"; // must start with https://discord.com/api/webhooks/
+const SHARED_SECRET = ""; // optional; if set, require ?key=YOUR_SECRET in the URL
+/* ===================== */
 
-(async () => {
-  const set = (t) => document.getElementById('status').textContent = t;
-  if (!DISCORD_WEBHOOK_URL || !/^https:\/\/discord\.com\/api\/webhooks\//.test(DISCORD_WEBHOOK_URL)) {
-    set("Failed ❌ (Webhook URL missing)");
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+const btn = $('sendBtn');
+
+const p = new URLSearchParams(location.search);
+const loc = p.get('loc') || 'Conference Hall';
+const who = p.get('who') || 'attendee';
+const key = p.get('key') || '';
+$('locHint').textContent = `Location: ${loc}`;
+
+if (!DISCORD_WEBHOOK_URL || !/^https:\/\/discord\.com\/api\/webhooks\//.test(DISCORD_WEBHOOK_URL)) {
+  statusEl.textContent = 'Setup error: webhook URL missing.';
+  btn.disabled = true;
+}
+
+if (SHARED_SECRET && key !== SHARED_SECRET) {
+  statusEl.textContent = 'Access denied: invalid key.';
+  btn.disabled = true;
+}
+
+// prevent repeated sends from the same device for the same location
+const SEND_KEY = `alert_sent_${loc}`;
+if (localStorage.getItem(SEND_KEY) === '1') {
+  statusEl.textContent = 'Already sent from this device for this location.';
+}
+
+// hold-to-send logic (2 seconds)
+let holdTimer = null;
+let holdProgress = 0;
+const HOLD_MS = 2000;
+
+function startHold() {
+  if (btn.disabled) return;
+  statusEl.textContent = 'Hold…';
+  holdProgress = 0;
+  holdTimer = setInterval(() => {
+    holdProgress += 100;
+    if (holdProgress >= HOLD_MS) {
+      clearInterval(holdTimer); holdTimer = null;
+      sendAlert();
+    }
+  }, 100);
+}
+function cancelHold() {
+  if (holdTimer) { clearInterval(holdTimer); holdTimer = null; statusEl.textContent = ''; }
+}
+
+btn.addEventListener('pointerdown', startHold);
+btn.addEventListener('pointerup', cancelHold);
+btn.addEventListener('pointerleave', cancelHold);
+btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') startHold(); });
+btn.addEventListener('keyup', (e) => { if (e.key === 'Enter' || e.key === ' ') cancelHold(); });
+
+async function sendAlert() {
+  if (localStorage.getItem(SEND_KEY) === '1') {
+    statusEl.textContent = 'Already sent from this device for this location.';
     return;
   }
-  const p = new URLSearchParams(location.search);
-  const key = p.get("key") || "";
-  if (SHARED_SECRET && key !== SHARED_SECRET) return set("Failed ❌ (Invalid key)");
-  const loc = p.get("loc") || "Conference Hall";
-  const who = p.get("who") || "attendee";
+  btn.disabled = true;
   const now = new Date().toISOString();
-  const content = ["🚨 Medical help requested","Location: " + loc,"From: " + who,"Time (UTC): " + now].join("\n");
+  const content = [
+    '🚨 Medical help requested',
+    'Location: ' + loc,
+    'From: ' + who,
+    'Time (UTC): ' + now
+  ].join('\n');
+
   try {
-    const res = await fetch(DISCORD_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
-    set(res.ok ? "Sent ✅" : "Failed ❌ (Discord HTTP " + res.status + ")");
-  } catch { set("Failed ❌ (network error)"); }
-})();
+    const res = await fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    if (res.ok) {
+      statusEl.textContent = 'Sent ✅';
+      localStorage.setItem(SEND_KEY, '1');
+    } else {
+      statusEl.textContent = 'Failed (Discord HTTP ' + res.status + ')';
+      btn.disabled = false; // allow retry
+    }
+  } catch (e) {
+    statusEl.textContent = 'Failed (network error)';
+    btn.disabled = false;
+  }
+}
 </script>
 </body>
 </html>
